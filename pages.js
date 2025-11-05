@@ -43,7 +43,14 @@ canvas.height = CANVAS_HEIGHT;
 canvas.style.width = CANVAS_WIDTH+"px";
 canvas.style.height = CANVAS_HEIGHT+"px";
 
+let mouseX = 0;
+let mouseY = 0;
 const gl = canvas.getContext('webgl');
+canvas.addEventListener("mousemove", function(e) {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+});
 if (!gl) throw "WebGL not supported";
 
 // Vertex shader: passthrough
@@ -63,11 +70,37 @@ varying vec2 v_uv;
 uniform sampler2D leftPageTex;
 uniform sampler2D rightPageTex;
 uniform sampler2D turningPageTex;
+uniform vec2 u_mouse;
 uniform float u_time;
+
+#define sat(a) clamp(a, 0., 1.)
+#define rot(a) mat2(cos(a), -sin(a), sin(a), cos(a))
+
 void main() {
-    float wave = 0.5 + 0.5 * sin(10.0 * v_uv.x + u_time);
-    vec4 texCol = texture2D(leftPageTex, v_uv);
-    gl_FragColor = mix(texCol, vec4(vec3(wave),1.0), 0.4);
+    vec2 uv = vec2(0.,1.)+v_uv*vec2(1.,-1.);
+    float wave = 0.5 + 0.5 * sin(10.0 * uv.x + u_time);
+    vec2 leftuv = uv*vec2(2.,1.);
+    float isLeftPage = float(leftuv.x > 0. && leftuv.x < 1. && leftuv.y > 0. && leftuv.y < 1.);
+    vec3 leftTex = texture2D(leftPageTex, leftuv).xyz;
+    vec2 rightuv = (uv-vec2(.5,0.))*vec2(2.,1.);
+    float isRightPage = float(rightuv.x > 0. && rightuv.x < 1. && rightuv.y > 0. && rightuv.y < 1.);
+    vec3 rightTex = texture2D(rightPageTex, rightuv).xyz;
+    vec3 col = vec3(0.);
+    col = mix(leftTex, rightTex, isRightPage);
+    //uv -= u_mouse;
+    vec2 bottomRightCorner = vec2(1.,1.);
+    vec2 mouseToBottomRightVec = bottomRightCorner-u_mouse;
+    float angle = atan(mouseToBottomRightVec.y, mouseToBottomRightVec.x);
+    uv -= bottomRightCorner;
+    uv *= rot(-angle);
+    uv.x += -0.5+length(mouseToBottomRightVec);
+    uv.x *= 2.;
+    uv += bottomRightCorner;
+    float cir = length(uv)-.05;
+    col = mix(col, vec3(1.,0.,0.), 1.-sat(cir*500.));
+    float isTurningPage = float(uv.x > 0. && uv.x < length(mouseToBottomRightVec) && uv.y > 0. && uv.y < 1.);
+    col = mix(col, texture2D(turningPageTex, uv).xyz, isTurningPage);
+    gl_FragColor = vec4(col, 1.);
 }
 `;
 
@@ -137,11 +170,12 @@ const rightTex = createTexture(gl.TEXTURE1);
 const turningTex = createTexture(gl.TEXTURE2);
 
 loadImage(leftTex, "pages/" + pages[0])
-loadImage(rightTex, "pages/" + pages[0])
-loadImage(turningTex, "pages/" + pages[0])
+loadImage(rightTex, "pages/" + pages[1])
+loadImage(turningTex, "pages/" + pages[3])
 
 // Main update loop
 const timeLoc = gl.getUniformLocation(prog, "u_time");
+const mousePosLoc = gl.getUniformLocation(prog, "u_mouse");
 
 function update(time) {
     gl.activeTexture(gl.TEXTURE0);
@@ -160,6 +194,7 @@ function update(time) {
     gl.viewport(0,0,canvas.width,canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform1f(timeLoc, time * 0.001);
+    gl.uniform2f(mousePosLoc, mouseX/CANVAS_WIDTH, mouseY/CANVAS_HEIGHT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
